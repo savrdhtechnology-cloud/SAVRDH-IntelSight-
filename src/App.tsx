@@ -3,6 +3,7 @@ import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom';
 import { Fingerprint, Sparkles, X, MonitorDot } from 'lucide-react';
 import { IntelSightPage } from './pages/IntelSightPage';
 import { IntelSightConsole } from './pages/IntelSightConsole';
+import { LeadIntelligenceDashboard } from './pages/LeadIntelligenceDashboard';
 import { LoginPage } from './pages/LoginPage';
 import { NavigationProvider, useNavigation } from './context/NavigationContext';
 import { AuthProvider, useAuth } from './context/AuthContext';
@@ -59,7 +60,14 @@ const Footer = () => (
 
 const Landing = () => <div className="min-h-screen bg-[#070b14] text-slate-100"><Header /><IntelSightPage /><Footer /><DemoModal /></div>;
 
-const ProtectedConsole = () => {
+const ProtectedLeadDashboard = () => {
+  const { user, loading, demoMode } = useAuth();
+  if (loading) return <div className="min-h-screen bg-[#050a13] text-cyan-300 flex items-center justify-center text-sm font-black">Loading secure IntelSight workspace…</div>;
+  if (!user && !demoMode) return <Navigate to="/login" replace />;
+  return <LeadIntelligenceDashboard />;
+};
+
+const ProtectedWorkspace = () => {
   const { user, loading, demoMode } = useAuth();
   if (loading) return <div className="min-h-screen bg-[#050a13] text-cyan-300 flex items-center justify-center text-sm font-black">Loading secure IntelSight workspace…</div>;
   if (!user && !demoMode) return <Navigate to="/login" replace />;
@@ -74,7 +82,8 @@ export default function App() {
           <Routes>
             <Route path="/" element={<Landing />} />
             <Route path="/login" element={<LoginPage />} />
-            <Route path="/app" element={<ProtectedConsole />} />
+            <Route path="/app" element={<ProtectedLeadDashboard />} />
+            <Route path="/app/workspace" element={<ProtectedWorkspace />} />
             <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>
         </NavigationProvider>
