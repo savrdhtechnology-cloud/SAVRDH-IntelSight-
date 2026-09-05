@@ -1,5 +1,6 @@
 {
   "rewrites": [
-    { "source": "/app", "destination": "/index.html" }
+    { "source": "/app", "destination": "/index.html" },
+    { "source": "/login", "destination": "/index.html" }
   ]
 }
