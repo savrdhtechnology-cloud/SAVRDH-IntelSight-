@@ -1,6 +1,8 @@
 import React, { useState } from 'react';
-import { Fingerprint, Sparkles, X } from 'lucide-react';
+import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom';
+import { Fingerprint, Sparkles, X, MonitorDot } from 'lucide-react';
 import { IntelSightPage } from './pages/IntelSightPage';
+import { IntelSightConsole } from './pages/IntelSightConsole';
 import { NavigationProvider, useNavigation } from './context/NavigationContext';
 
 const Header = () => {
@@ -17,9 +19,10 @@ const Header = () => {
             <span className="block text-[9px] uppercase tracking-[0.18em] text-cyan-400">SAVRDH TECHNOLOGY</span>
           </span>
         </button>
-        <nav className="hidden md:flex items-center gap-6 text-xs font-bold text-slate-400">
-          <button onClick={() => document.getElementById('pricing')?.scrollIntoView({ behavior: 'smooth' })} className="hover:text-cyan-300 transition-colors cursor-pointer">Plans</button>
-          <button onClick={() => document.getElementById('contact')?.scrollIntoView({ behavior: 'smooth' })} className="hover:text-cyan-300 transition-colors cursor-pointer">Contact</button>
+        <nav className="hidden md:flex items-center gap-3 text-xs font-bold text-slate-400">
+          <button onClick={() => document.getElementById('pricing')?.scrollIntoView({ behavior: 'smooth' })} className="px-3 py-2 hover:text-cyan-300 transition-colors cursor-pointer">Plans</button>
+          <button onClick={() => document.getElementById('contact')?.scrollIntoView({ behavior: 'smooth' })} className="px-3 py-2 hover:text-cyan-300 transition-colors cursor-pointer">Contact</button>
+          <button onClick={() => window.location.assign('/app')} className="px-4 py-2.5 rounded-xl border border-cyan-500/25 bg-cyan-500/10 text-cyan-300 hover:bg-cyan-500/15 transition-all cursor-pointer inline-flex items-center gap-2"><MonitorDot className="w-4 h-4" />Open Console</button>
           <button onClick={() => setOpenDemoModal(true)} className="px-4 py-2.5 rounded-xl bg-gradient-to-r from-cyan-500 to-blue-600 text-white hover:brightness-110 transition-all cursor-pointer">Book Demo</button>
         </nav>
       </div>
@@ -39,13 +42,13 @@ const DemoModal = () => {
           <div>
             <div className="inline-flex items-center gap-2 text-[10px] font-black uppercase tracking-[0.18em] text-cyan-400"><Sparkles className="w-3.5 h-3.5" /> Early Access</div>
             <h2 className="mt-2 text-2xl font-black text-white">Request IntelSight Demo</h2>
-            <p className="mt-2 text-xs leading-relaxed text-slate-400">Demo form is UI-ready. Connect this form to your CRM/API when the application backend is enabled.</p>
+            <p className="mt-2 text-xs leading-relaxed text-slate-400">The product console is now in active development. This form will be connected to the SAVRDH CRM during backend integration.</p>
           </div>
           <button onClick={() => setOpenDemoModal(false)} className="w-9 h-9 rounded-xl border border-slate-700 bg-slate-900 flex items-center justify-center text-slate-400 hover:text-white cursor-pointer"><X className="w-4 h-4" /></button>
         </div>
 
         {submitted ? (
-          <div className="mt-6 p-5 rounded-2xl border border-emerald-500/25 bg-emerald-500/10 text-sm text-emerald-300">Demo request captured in the interface. Backend/CRM submission can be connected next.</div>
+          <div className="mt-6 p-5 rounded-2xl border border-emerald-500/25 bg-emerald-500/10 text-sm text-emerald-300">Demo request captured in the interface. CRM persistence will be enabled with the production backend.</div>
         ) : (
           <form className="mt-6 space-y-3" onSubmit={(event) => { event.preventDefault(); setSubmitted(true); }}>
             <input required placeholder="Full name" className="w-full rounded-xl border border-slate-800 bg-slate-950 px-4 py-3 text-sm text-white outline-none focus:border-cyan-500/50" />
@@ -72,7 +75,7 @@ const Footer = () => (
   </footer>
 );
 
-const Shell = () => (
+const Landing = () => (
   <div className="min-h-screen bg-[#070b14] text-slate-100">
     <Header />
     <IntelSightPage />
@@ -83,8 +86,14 @@ const Shell = () => (
 
 export default function App() {
   return (
-    <NavigationProvider>
-      <Shell />
-    </NavigationProvider>
+    <BrowserRouter>
+      <NavigationProvider>
+        <Routes>
+          <Route path="/" element={<Landing />} />
+          <Route path="/app" element={<IntelSightConsole />} />
+          <Route path="*" element={<Navigate to="/" replace />} />
+        </Routes>
+      </NavigationProvider>
+    </BrowserRouter>
   );
 }
