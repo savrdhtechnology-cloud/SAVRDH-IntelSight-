@@ -5,6 +5,11 @@ const headers = {
 
 const allowedTypes = new Set(['email', 'mobile', 'username', 'domain']);
 
+const sendJson = (res, status, payload) => {
+  Object.entries(headers).forEach(([key, value]) => res.setHeader(key, value));
+  return res.status(status).json(payload);
+};
+
 const normalize = (value, type) => {
   const raw = String(value || '').trim().slice(0, 180);
   if (type === 'domain') return raw.replace(/^https?:\/\//i, '').replace(/^www\./i, '').split('/')[0].toLowerCase();
@@ -19,7 +24,7 @@ async function domainLookup(domain) {
   if (!/^[a-z0-9.-]+\.[a-z]{2,}$/i.test(domain)) return null;
   const url = `https://rdap.org/domain/${encodeURIComponent(domain)}`;
   const response = await fetch(url, {
-    headers: { 'User-Agent': 'SAVRDH-IntelSight/0.2 public-osint-contact' },
+    headers: { 'User-Agent': 'SAVRDH-IntelSight/0.2' },
     signal: AbortSignal.timeout(8000),
   });
   if (!response.ok) return null;
@@ -101,30 +106,30 @@ async function githubLookup(username) {
 }
 
 export default async function handler(req, res) {
-  if (req.method !== 'POST') return res.status(405).set(headers).json({ error: 'Method not allowed' });
+  if (req.method !== 'POST') return sendJson(res, 405, { error: 'Method not allowed' });
 
   const { query, type } = req.body || {};
-  if (!allowedTypes.has(type)) return res.status(400).set(headers).json({ error: 'Unsupported search type' });
+  if (!allowedTypes.has(type)) return sendJson(res, 400, { error: 'Unsupported search type' });
   const normalized = normalize(query, type);
-  if (!normalized) return res.status(400).set(headers).json({ error: 'Search query is required' });
+  if (!normalized) return sendJson(res, 400, { error: 'Search query is required' });
 
   try {
     if (type === 'domain') {
       const result = await domainLookup(normalized);
-      return result ? res.status(200).set(headers).json({ result }) : res.status(404).set(headers).json({ error: 'No public RDAP record found' });
+      return result ? sendJson(res, 200, { result }) : sendJson(res, 404, { error: 'No public RDAP record found' });
     }
     if (type === 'username') {
       const result = await githubLookup(normalized);
-      return result ? res.status(200).set(headers).json({ result }) : res.status(404).set(headers).json({ error: 'No public GitHub profile found' });
+      return result ? sendJson(res, 200, { result }) : sendJson(res, 404, { error: 'No public GitHub profile found' });
     }
 
-    return res.status(200).set(headers).json({
+    return sendJson(res, 200, {
       result: null,
       connectorStatus: 'not_configured',
       message: 'Email/mobile public-web connectors require an approved server-side search provider. The client will show synthetic demo results until configured.',
     });
   } catch (error) {
     console.error('IntelSight search connector error', error);
-    return res.status(502).set(headers).json({ error: 'Public source connector temporarily unavailable' });
+    return sendJson(res, 502, { error: 'Public source connector temporarily unavailable' });
   }
 }
