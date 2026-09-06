@@ -9,6 +9,9 @@ export type EvidenceItem = {
   confidence: number;
   observedAt: string;
   summary: string;
+  matchBasis?: string;
+  scanGroup?: string;
+  verification?: string;
 };
 
 export type SearchResult = {
@@ -26,6 +29,22 @@ export type SearchResult = {
     summary: string;
   };
   mode: 'demo' | 'live';
+  matchPolicy?: string;
+  verificationGrade?: string;
+  exactMatchCount?: number;
+  socialFootprintCount?: number;
+  businessFootprintCount?: number;
+  platformCount?: number;
+  platformsFound?: string[];
+  connectorStatus?: Record<string, string>;
+  searchMeta?: {
+    queriesIssued?: number;
+    groupsAttempted?: string[];
+    candidateUrlsReviewed?: number;
+    extractionsAttempted?: number;
+    strictVerification?: boolean;
+    falsePositiveProtection?: string;
+  };
   companyProfile?: {
     searchedName?: string;
     cinCandidates?: string[];
@@ -43,8 +62,8 @@ const companyPattern = /\b(private\s+limited|pvt\.?\s*ltd\.?|pvt\.?\s+limited|li
 export function inferSearchType(value: string): SearchType {
   const q = value.trim();
   if (/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(q)) return 'email';
-  if (/^[+\d][\d\s()-]{7,}$/.test(q)) return 'mobile';
-  if (/^(?:https?:\/\/)?(?:www\.)?[a-z0-9.-]+\.[a-z]{2,}$/i.test(q)) return 'domain';
+  if (/^[+\d][\d\s().-]{7,}$/.test(q)) return 'mobile';
+  if (/^(?:https?:\/\/)?(?:www\.)?[a-z0-9.-]+\.[a-z]{2,}(?:\/.*)?$/i.test(q)) return 'domain';
   if (companyPattern.test(q)) return 'company';
   return 'username';
 }
@@ -53,110 +72,37 @@ export function normalizeQuery(value: string, type: SearchType): string {
   const q = safeText(value);
   if (type === 'email') return q.toLowerCase();
   if (type === 'domain') return q.replace(/^https?:\/\//i, '').replace(/^www\./i, '').split('/')[0].toLowerCase();
-  if (type === 'mobile') return q.replace(/[^+\d]/g, '');
+  if (type === 'mobile') return q.replace(/\D/g, '').replace(/^91(?=\d{10}$)/, '').replace(/^0(?=\d{10}$)/, '');
   if (type === 'company') return q.replace(/\s+/g, ' ').trim();
   return q.replace(/^@/, '');
 }
 
+// Kept for compatibility with the existing dashboards. This is now an empty state,
+// not a synthetic intelligence dataset. Search failures must never look like real findings.
 export function createDemoResult(value: string, explicitType?: SearchType): SearchResult {
-  const type = explicitType ?? inferSearchType(value);
-  const query = normalizeQuery(value || 'public_example', type);
-  const now = new Date();
-  const iso = (daysAgo: number) => new Date(now.getTime() - daysAgo * 86400000).toISOString();
-
-  const identityLabel =
-    type === 'domain' ? `Organization linked to ${query}` :
-    type === 'company' ? `Company intelligence profile: ${query}` :
-    type === 'email' ? 'Possible public identity match' :
-    type === 'mobile' ? 'Possible public phone references' :
-    `Public username cluster: ${query}`;
-
-  const evidence: EvidenceItem[] = [
-    {
-      id: 'ev-1',
-      source: type === 'username' ? 'GitHub Public Profile' : type === 'company' ? 'Public Corporate Web' : 'Indexed Public Web',
-      title: type === 'domain' ? `Public references for ${query}` : type === 'company' ? `Public company references for ${query}` : `Public web mention containing ${query}`,
-      url: 'https://example.com/public-source-1',
-      category: type === 'domain' ? 'domain' : type === 'company' ? 'business' : 'web',
-      confidence: 92,
-      observedAt: iso(0),
-      summary: 'Synthetic demonstration record representing a high-confidence public occurrence. Live mode replaces this with evidence from configured public or licensed sources.',
-    },
-    {
-      id: 'ev-2',
-      source: type === 'company' ? 'Professional Company Profile' : 'Public Profile Index',
-      title: type === 'company' ? 'Possible matching public company profile' : 'Possible matching public profile',
-      url: 'https://example.com/public-source-2',
-      category: 'profile',
-      confidence: 84,
-      observedAt: iso(3),
-      summary: 'Potential public profile match based on identifier correlation. Analyst review is required before treating it as the same person or organization.',
-    },
-    {
-      id: 'ev-3',
-      source: 'Business Directory',
-      title: 'Possible organization association',
-      url: 'https://example.com/public-source-3',
-      category: 'business',
-      confidence: 78,
-      observedAt: iso(9),
-      summary: 'Synthetic public business-directory signal showing how an organization or professional association would appear when supported by a traceable source.',
-    },
-    {
-      id: 'ev-4',
-      source: 'Domain & Registry Intelligence',
-      title: 'Domain or website association signal',
-      url: 'https://example.com/public-source-4',
-      category: 'domain',
-      confidence: 75,
-      observedAt: iso(17),
-      summary: 'Demonstration domain signal. In live mode, registry and website metadata remain source-linked and are not treated as proof of ownership without corroboration.',
-    },
-    {
-      id: 'ev-5',
-      source: 'Public Documents Index',
-      title: 'Historical public document mention',
-      url: 'https://example.com/public-source-5',
-      category: 'web',
-      confidence: 69,
-      observedAt: iso(46),
-      summary: 'Synthetic indexed-document reference showing how historical public mentions can be added to the lead timeline with source and confidence context.',
-    },
-    {
-      id: 'ev-6',
-      source: 'Defensive Exposure Provider',
-      title: 'Exposure indicator summary',
-      url: 'https://example.com/public-source-6',
-      category: 'exposure',
-      confidence: 63,
-      observedAt: iso(91),
-      summary: 'Demonstration defensive exposure signal only. IntelSight is designed to show risk summaries, not stolen passwords, tokens, cookies, OTPs or private messages.',
-    },
-  ];
-
+  const type = explicitType ?? inferSearchType(value || '');
+  const query = normalizeQuery(value || '', type);
   return {
     query,
     type,
-    visibilityScore: type === 'domain' ? 86 : type === 'company' ? 88 : type === 'username' ? 81 : 74,
-    confidence: 82,
-    sourceCount: evidence.length,
-    possibleIdentity: identityLabel,
-    summary: type === 'company'
-      ? 'IntelSight correlates public corporate, professional, social, domain and web signals into a company intelligence profile with source-linked confidence.'
-      : 'IntelSight correlates public and authorized digital signals into a Lead 360 profile, showing where an identifier appears on the public internet, how strong each match is, and which evidence supports the relationship.',
-    evidence,
-    timeline: [
-      { date: iso(0), label: 'Latest public occurrence checked', detail: 'A current public-source scan returned a matching identifier signal.' },
-      { date: iso(3), label: 'Possible profile correlation', detail: 'A public profile signal was associated with the searched identifier and marked for analyst review.' },
-      { date: iso(9), label: 'Organization association signal', detail: 'A possible public business or organization reference was observed.' },
-      { date: iso(17), label: 'Domain association signal', detail: 'A domain or registry-related public signal was added to the evidence set.' },
-      { date: iso(46), label: 'Historical indexed mention', detail: 'An older public document or indexed web reference was identified.' },
-      { date: iso(91), label: 'Defensive exposure signal', detail: 'A non-secret defensive exposure indicator was associated with the identifier.' },
-    ],
+    visibilityScore: 0,
+    confidence: 0,
+    sourceCount: 0,
+    possibleIdentity: 'No verified public identity established',
+    summary: 'No verified live intelligence has been loaded for this identifier yet. Run a search to collect source-linked public evidence.',
+    evidence: [],
+    timeline: [],
     exposure: {
-      status: 'possible',
-      summary: 'Possible defensive exposure signal found in demo data. Live mode will only use authorized providers and will not display stolen secrets.',
+      status: 'none',
+      summary: 'IntelSight only uses public or authorized sources and does not display private chats, passwords, OTPs, secret tokens, locked-account data, or private real-time location.',
     },
     mode: 'demo',
+    matchPolicy: 'no_synthetic_fallback',
+    verificationGrade: 'NONE',
+    exactMatchCount: 0,
+    socialFootprintCount: 0,
+    businessFootprintCount: 0,
+    platformCount: 0,
+    platformsFound: [],
   };
 }
