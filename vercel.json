@@ -1,5 +1,6 @@
 {
   "rewrites": [
+    { "source": "/api/search", "destination": "/api/deep-search" },
     { "source": "/app", "destination": "/index.html" },
     { "source": "/app/:path*", "destination": "/index.html" },
     { "source": "/login", "destination": "/index.html" }
