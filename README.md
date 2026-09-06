@@ -8,12 +8,16 @@ SAVRDH IntelSight is being developed as a professional public-data intelligence 
 ## Current Phase 1 build
 
 - Premium SAVRDH IntelSight landing page
-- `/app` investigation console
+- `/app` animated Lead 360 Analytics Dashboard
+- `/app/profile` detailed Lead 360 public profile
 - Email / mobile / username / domain search interface
+- Tavily-backed public web discovery when configured
 - Live public RDAP lookup for domains
 - Live public GitHub profile lookup for usernames
-- Synthetic demo fallback for connectors that are not configured yet
 - Evidence-linked results with confidence and visibility scores
+- Animated visibility trend, source distribution, confidence/credibility gauges
+- Global public-presence visualization and relationship graph
+- Platform signal comparison, strongest evidence, recent activity and live scan activity
 - Timeline and defensive exposure summary UI
 - Cases, relationship graph, reports, watchlists, sources and audit-log module shells
 - Supabase client foundation
@@ -34,7 +38,8 @@ npm run dev
 Open:
 
 - Website: `http://localhost:3000/`
-- Investigation console: `http://localhost:3000/app`
+- Analytics dashboard: `http://localhost:3000/app`
+- Detailed Lead 360 profile: `http://localhost:3000/app/profile`
 
 ## Supabase setup
 
@@ -46,4 +51,4 @@ Open:
 
 ## Production connectors
 
-Phase 1 contains live public connectors for RDAP and GitHub. Email/mobile public-web discovery requires a server-side approved search provider before it can operate in live mode. Defensive breach exposure should use a licensed provider and return exposure summaries only, never stolen secrets.
+The current backend supports Tavily public web discovery when `TAVILY_API_KEY` is configured, plus RDAP and GitHub public connectors. Defensive breach exposure should use a licensed provider and return exposure summaries only, never stolen secrets.
