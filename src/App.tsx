@@ -4,6 +4,7 @@ import { Fingerprint, Sparkles, X, MonitorDot } from 'lucide-react';
 import { IntelSightPage } from './pages/IntelSightPage';
 import { IntelSightConsole } from './pages/IntelSightConsole';
 import { LeadIntelligenceDashboard } from './pages/LeadIntelligenceDashboard';
+import { AnalyticsDashboard } from './pages/AnalyticsDashboard';
 import { LoginPage } from './pages/LoginPage';
 import { NavigationProvider, useNavigation } from './context/NavigationContext';
 import { AuthProvider, useAuth } from './context/AuthContext';
@@ -60,18 +61,11 @@ const Footer = () => (
 
 const Landing = () => <div className="min-h-screen bg-[#070b14] text-slate-100"><Header /><IntelSightPage /><Footer /><DemoModal /></div>;
 
-const ProtectedLeadDashboard = () => {
+const Protected = ({ children }: { children: React.ReactNode }) => {
   const { user, loading, demoMode } = useAuth();
   if (loading) return <div className="min-h-screen bg-[#050a13] text-cyan-300 flex items-center justify-center text-sm font-black">Loading secure IntelSight workspace…</div>;
   if (!user && !demoMode) return <Navigate to="/login" replace />;
-  return <LeadIntelligenceDashboard />;
-};
-
-const ProtectedWorkspace = () => {
-  const { user, loading, demoMode } = useAuth();
-  if (loading) return <div className="min-h-screen bg-[#050a13] text-cyan-300 flex items-center justify-center text-sm font-black">Loading secure IntelSight workspace…</div>;
-  if (!user && !demoMode) return <Navigate to="/login" replace />;
-  return <IntelSightConsole />;
+  return <>{children}</>;
 };
 
 export default function App() {
@@ -82,8 +76,9 @@ export default function App() {
           <Routes>
             <Route path="/" element={<Landing />} />
             <Route path="/login" element={<LoginPage />} />
-            <Route path="/app" element={<ProtectedLeadDashboard />} />
-            <Route path="/app/workspace" element={<ProtectedWorkspace />} />
+            <Route path="/app" element={<Protected><AnalyticsDashboard /></Protected>} />
+            <Route path="/app/profile" element={<Protected><LeadIntelligenceDashboard /></Protected>} />
+            <Route path="/app/workspace" element={<Protected><IntelSightConsole /></Protected>} />
             <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>
         </NavigationProvider>
