@@ -51,10 +51,6 @@ const categoryFromUrl = (url) => {
   const platform = platformFromUrl(url);
   if (platform === 'Business / Registry') return 'registry';
   if (SOCIAL_DOMAINS.some((host) => String(url || '').toLowerCase().includes(host))) return 'social';
-  try {
-    const host = new URL(url).hostname.toLowerCase();
-    if (host && !['www.google.com', 'google.com'].includes(host)) return 'web';
-  } catch {}
   return 'web';
 };
 
@@ -73,14 +69,14 @@ const exactNameObserved = (text, name) => String(text || '').toLowerCase().inclu
 
 async function tavilySearch(query, includeDomains = null, includeImages = false) {
   const apiKey = process.env.TAVILY_API_KEY;
-  if (!apiKey) return { results: [], images: [] };
+  if (!apiKey) return { results: [], images: [], limited: true };
   const body = {
     query,
     topic: 'general',
-    search_depth: 'advanced',
-    max_results: 10,
+    search_depth: 'basic',
+    max_results: 6,
     include_answer: false,
-    include_raw_content: true,
+    include_raw_content: false,
     include_images: Boolean(includeImages),
     include_image_descriptions: Boolean(includeImages),
     include_favicon: true,
@@ -91,13 +87,14 @@ async function tavilySearch(query, includeDomains = null, includeImages = false)
     method: 'POST',
     headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey}` },
     body: JSON.stringify(body),
-    signal: AbortSignal.timeout(25000),
+    signal: AbortSignal.timeout(18000),
   });
-  if (!response.ok) return { results: [], images: [] };
+  if (!response.ok) return { results: [], images: [], limited: true };
   const payload = await response.json();
   return {
     results: Array.isArray(payload?.results) ? payload.results : [],
     images: Array.isArray(payload?.images) ? payload.images : [],
+    limited: false,
   };
 }
 
@@ -109,7 +106,7 @@ async function githubAuthorNames(email) {
   const response = await fetch(url, {
     headers: {
       Accept: 'application/vnd.github+json',
-      'User-Agent': 'SAVRDH-IntelSight/1.1',
+      'User-Agent': 'SAVRDH-IntelSight/1.2',
       'X-GitHub-Api-Version': '2022-11-28',
     },
     signal: AbortSignal.timeout(10000),
@@ -136,7 +133,7 @@ function extractLabeledNames(text) {
       if (candidate.split(/\s+/).length >= 2 && candidate.length <= 80) names.push(candidate);
     }
   }
-  return [...new Set(names)].slice(0, 5);
+  return [...new Set(names)].slice(0, 4);
 }
 
 function normalizeImage(image, candidateName, originQuery) {
@@ -156,8 +153,7 @@ function mapEvidence(item, subject, type, candidateName, origin) {
   if (!url) return null;
   const title = clean(item?.title, 260) || 'Public source';
   const content = clean(item?.content || item?.snippet, 1500);
-  const raw = clean(item?.raw_content, 7000);
-  const combined = `${title} ${content} ${raw}`;
+  const combined = `${title} ${content}`;
   if (!exactNameObserved(combined, candidateName)) return null;
   const corroborated = subjectObserved(combined, subject, type);
   const platform = platformFromUrl(url);
@@ -198,8 +194,8 @@ export default async function handler(req, res) {
 
   try {
     const discoveryQuery = type === 'email' || type === 'mobile'
-      ? `"${subject.replace(/"/g, '')}" public name owner company organization contact`
-      : `"${subject.replace(/"/g, '')}" official website company organization social profiles`;
+      ? `\"${subject.replace(/\"/g, '')}\" public name owner company organization contact`
+      : `\"${subject.replace(/\"/g, '')}\" official website company organization social profiles`;
 
     const [discovery, githubNames] = await Promise.all([
       tavilySearch(discoveryQuery, null, true),
@@ -207,8 +203,8 @@ export default async function handler(req, res) {
     ]);
 
     const discoveryText = discovery.results
-      .filter((item) => subjectObserved(`${item?.title || ''} ${item?.content || ''} ${item?.raw_content || ''}`, subject, type))
-      .map((item) => `${item?.title || ''}\n${item?.content || ''}\n${item?.raw_content || ''}`)
+      .filter((item) => subjectObserved(`${item?.title || ''} ${item?.content || ''}`, subject, type))
+      .map((item) => `${item?.title || ''}\n${item?.content || ''}`)
       .join('\n');
 
     const directCandidate = ['name', 'username'].includes(type) && /\s/.test(subject) ? [subject] : [];
@@ -216,22 +212,23 @@ export default async function handler(req, res) {
       ...directCandidate,
       ...githubNames,
       ...extractLabeledNames(discoveryText),
-    ])].filter(Boolean).slice(0, 3);
+    ])].filter(Boolean).slice(0, 2);
 
     const evidence = [];
     const images = [];
 
-    for (const candidateName of candidateNames.slice(0, 2)) {
-      const safeName = candidateName.replace(/"/g, '');
+    // Credit-efficient expansion: expand the strongest candidate only.
+    const candidateName = candidateNames[0];
+    if (candidateName) {
+      const safeName = candidateName.replace(/\"/g, '');
       const searches = await Promise.allSettled([
-        tavilySearch(`"${safeName}" official website domain contact company`, null, true),
-        tavilySearch(`"${safeName}"`, SOCIAL_DOMAINS, true),
-        tavilySearch(`"${safeName}" company firm CIN LLP GST proprietor director`, BUSINESS_DOMAINS, false),
+        tavilySearch(`\"${safeName}\" official website domain social profile company contact`, null, true),
+        tavilySearch(`\"${safeName}\" company firm CIN LLP GST proprietor director`, BUSINESS_DOMAINS, false),
       ]);
 
       searches.forEach((entry, index) => {
         if (entry.status !== 'fulfilled') return;
-        const origin = index === 0 ? 'name-web' : index === 1 ? 'name-social' : 'name-registry';
+        const origin = index === 0 ? 'name-web-social' : 'name-registry';
         entry.value.results.forEach((item) => {
           const mapped = mapEvidence(item, subject, type, candidateName, origin);
           if (mapped) evidence.push(mapped);
@@ -243,14 +240,13 @@ export default async function handler(req, res) {
       });
     }
 
-    // Keep discovery images too, but label them as subject-discovery images. These are visual search leads, not identity proof.
     discovery.images.forEach((image) => {
       const normalized = normalizeImage(image, candidateNames[0] || subject, 'subject-discovery');
       if (normalized) images.push(normalized);
     });
 
-    const uniqueEvidence = dedupeByUrl(evidence).slice(0, 60);
-    const uniqueImages = dedupeByUrl(images).slice(0, 30);
+    const uniqueEvidence = dedupeByUrl(evidence).slice(0, 40);
+    const uniqueImages = dedupeByUrl(images).slice(0, 20);
     const domains = [...new Set(uniqueEvidence
       .filter((item) => item.category === 'web')
       .map((item) => {
@@ -275,12 +271,26 @@ export default async function handler(req, res) {
         images: uniqueImages.length,
         domains: domains.length,
       },
-      connector: 'tavily_entity_expansion',
+      connector: 'tavily_entity_expansion_lite',
       publicDataOnly: true,
-      notice: 'Name-only results are correlation leads, not proof of ownership. Public/indexed images and image descriptions may be returned; text that exists only inside non-indexed image pixels requires a separate OCR-capable source workflow.',
+      notice: discovery.limited
+        ? 'Tavily usage is currently limited. Independent connector evidence remains available; broader name/social/image expansion will resume when Tavily allowance is available.'
+        : 'Credit-efficient entity expansion completed. Name-only results are correlation leads, not proof of ownership.',
     });
   } catch (error) {
     console.error('Entity expansion error', error);
-    return send(res, 502, { error: 'Public entity expansion temporarily unavailable' });
+    return send(res, 200, {
+      ok: true,
+      subject,
+      type,
+      candidateNames: [],
+      evidence: [],
+      images: [],
+      domains: [],
+      counts: { evidence: 0, corroborated: 0, social: 0, registry: 0, web: 0, images: 0, domains: 0 },
+      connector: 'tavily_entity_expansion_lite',
+      publicDataOnly: true,
+      notice: 'Entity expansion is temporarily limited; independent public connectors can still return evidence.',
+    });
   }
 }
