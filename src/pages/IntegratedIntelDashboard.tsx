@@ -1,10 +1,10 @@
 import React from 'react';
 import { LiveIntelDashboard } from './LiveIntelDashboard';
-import DeepResearchDockV2 from '../components/DeepResearchDockV2';
+import DeepResearchDockV3 from '../components/DeepResearchDockV3';
 
 export const IntegratedIntelDashboard: React.FC = () => (
   <>
     <LiveIntelDashboard />
-    <DeepResearchDockV2 />
+    <DeepResearchDockV3 />
   </>
 );
