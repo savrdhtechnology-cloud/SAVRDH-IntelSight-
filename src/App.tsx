@@ -6,6 +6,7 @@ import { IntelSightConsole } from './pages/IntelSightConsole';
 import { LeadIntelligenceDashboard } from './pages/LeadIntelligenceDashboard';
 import { AnalyticsDashboard } from './pages/AnalyticsDashboard';
 import { LoginPage } from './pages/LoginPage';
+import GraphDetailEnhancer from './components/GraphDetailEnhancer';
 import { NavigationProvider, useNavigation } from './context/NavigationContext';
 import { AuthProvider, useAuth } from './context/AuthContext';
 
@@ -77,7 +78,7 @@ export default function App() {
             <Route path="/" element={<Landing />} />
             <Route path="/login" element={<LoginPage />} />
             <Route path="/app" element={<Protected><AnalyticsDashboard /></Protected>} />
-            <Route path="/app/profile" element={<Protected><LeadIntelligenceDashboard /></Protected>} />
+            <Route path="/app/profile" element={<Protected><><LeadIntelligenceDashboard /><GraphDetailEnhancer /></></Protected>} />
             <Route path="/app/workspace" element={<Protected><IntelSightConsole /></Protected>} />
             <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>
