@@ -1,4 +1,4 @@
-export type SearchType = 'email' | 'mobile' | 'username' | 'domain';
+export type SearchType = 'email' | 'mobile' | 'username' | 'domain' | 'company';
 
 export type EvidenceItem = {
   id: string;
@@ -26,15 +26,26 @@ export type SearchResult = {
     summary: string;
   };
   mode: 'demo' | 'live';
+  companyProfile?: {
+    searchedName?: string;
+    cinCandidates?: string[];
+    gstinCandidates?: string[];
+    businessReferenceCount?: number;
+    publicProfileCount?: number;
+    domainSignalCount?: number;
+  };
 };
 
 const safeText = (value: string) => value.trim().slice(0, 180);
+
+const companyPattern = /\b(private\s+limited|pvt\.?\s*ltd\.?|pvt\.?\s+limited|limited|ltd\.?|llp|incorporated|inc\.?|corporation|corp\.?|company|co\.?|technologies|technology|financials?|capital|industries|enterprises|solutions|foods|group)\b/i;
 
 export function inferSearchType(value: string): SearchType {
   const q = value.trim();
   if (/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(q)) return 'email';
   if (/^[+\d][\d\s()-]{7,}$/.test(q)) return 'mobile';
   if (/^(?:https?:\/\/)?(?:www\.)?[a-z0-9.-]+\.[a-z]{2,}$/i.test(q)) return 'domain';
+  if (companyPattern.test(q)) return 'company';
   return 'username';
 }
 
@@ -43,6 +54,7 @@ export function normalizeQuery(value: string, type: SearchType): string {
   if (type === 'email') return q.toLowerCase();
   if (type === 'domain') return q.replace(/^https?:\/\//i, '').replace(/^www\./i, '').split('/')[0].toLowerCase();
   if (type === 'mobile') return q.replace(/[^+\d]/g, '');
+  if (type === 'company') return q.replace(/\s+/g, ' ').trim();
   return q.replace(/^@/, '');
 }
 
@@ -54,6 +66,7 @@ export function createDemoResult(value: string, explicitType?: SearchType): Sear
 
   const identityLabel =
     type === 'domain' ? `Organization linked to ${query}` :
+    type === 'company' ? `Company intelligence profile: ${query}` :
     type === 'email' ? 'Possible public identity match' :
     type === 'mobile' ? 'Possible public phone references' :
     `Public username cluster: ${query}`;
@@ -61,18 +74,18 @@ export function createDemoResult(value: string, explicitType?: SearchType): Sear
   const evidence: EvidenceItem[] = [
     {
       id: 'ev-1',
-      source: type === 'username' ? 'GitHub Public Profile' : 'Indexed Public Web',
-      title: type === 'domain' ? `Public references for ${query}` : `Public web mention containing ${query}`,
+      source: type === 'username' ? 'GitHub Public Profile' : type === 'company' ? 'Public Corporate Web' : 'Indexed Public Web',
+      title: type === 'domain' ? `Public references for ${query}` : type === 'company' ? `Public company references for ${query}` : `Public web mention containing ${query}`,
       url: 'https://example.com/public-source-1',
-      category: type === 'domain' ? 'domain' : 'web',
+      category: type === 'domain' ? 'domain' : type === 'company' ? 'business' : 'web',
       confidence: 92,
       observedAt: iso(0),
       summary: 'Synthetic demonstration record representing a high-confidence public occurrence. Live mode replaces this with evidence from configured public or licensed sources.',
     },
     {
       id: 'ev-2',
-      source: 'Public Profile Index',
-      title: 'Possible matching public profile',
+      source: type === 'company' ? 'Professional Company Profile' : 'Public Profile Index',
+      title: type === 'company' ? 'Possible matching public company profile' : 'Possible matching public profile',
       url: 'https://example.com/public-source-2',
       category: 'profile',
       confidence: 84,
@@ -124,11 +137,13 @@ export function createDemoResult(value: string, explicitType?: SearchType): Sear
   return {
     query,
     type,
-    visibilityScore: type === 'domain' ? 86 : type === 'username' ? 81 : 74,
+    visibilityScore: type === 'domain' ? 86 : type === 'company' ? 88 : type === 'username' ? 81 : 74,
     confidence: 82,
     sourceCount: evidence.length,
     possibleIdentity: identityLabel,
-    summary: 'IntelSight correlates public and authorized digital signals into a Lead 360 profile, showing where an identifier appears on the public internet, how strong each match is, and which evidence supports the relationship.',
+    summary: type === 'company'
+      ? 'IntelSight correlates public corporate, professional, social, domain and web signals into a company intelligence profile with source-linked confidence.'
+      : 'IntelSight correlates public and authorized digital signals into a Lead 360 profile, showing where an identifier appears on the public internet, how strong each match is, and which evidence supports the relationship.',
     evidence,
     timeline: [
       { date: iso(0), label: 'Latest public occurrence checked', detail: 'A current public-source scan returned a matching identifier signal.' },
