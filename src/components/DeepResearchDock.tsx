@@ -1,13 +1,14 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import {
   Activity, AtSign, Bot, Building2, CheckCircle2, ExternalLink, FileText,
   Globe2, Link2, LoaderCircle, Mail, Network, Phone, Radar, Search, ShieldCheck,
-  Sparkles, UserRound, Users, X
+  Sparkles, Users, X
 } from 'lucide-react';
 
 type ResearchSource = { title?: string; url?: string; content?: string };
 type ResearchSection = { title: string; body: string };
 type PlatformStat = { name: string; count: number };
+type GraphSelection = { kind: 'target' } | { kind: 'platform'; name: string } | null;
 
 const SOCIAL = new Set(['Facebook', 'Instagram', 'LinkedIn', 'X / Twitter', 'Reddit', 'YouTube', 'TikTok', 'Threads', 'Pinterest']);
 const BUSINESS_HOSTS = ['instafinancials', 'zaubacorp', 'tofler', 'tradeindia', 'indiamart', 'justdial', 'sulekha', 'companycheck', 'cleartax', 'indiafilings'];
@@ -81,26 +82,126 @@ const Metric = ({ label, value, icon: Icon }: { label: string; value: number | s
   </div>
 );
 
-const NetworkGraph = ({ subject, platforms }: { subject: string; platforms: PlatformStat[] }) => {
+const NetworkGraph = ({ subject, platforms, sources }: { subject: string; platforms: PlatformStat[]; sources: ResearchSource[] }) => {
+  const [selected, setSelected] = useState<GraphSelection>(null);
+
+  useEffect(() => {
+    setSelected(null);
+  }, [subject, platforms.length, sources.length]);
+
   const nodes = platforms.slice(0, 8).map((item, index, all) => ({
     ...item,
     x: 50 + Math.cos((index / Math.max(1, all.length)) * Math.PI * 2) * 35,
     y: 50 + Math.sin((index / Math.max(1, all.length)) * Math.PI * 2) * 32,
   }));
+
+  const selectedSources = selected?.kind === 'platform'
+    ? sources.filter((source) => platformFromUrl(String(source.url || '')) === selected.name)
+    : selected?.kind === 'target' ? sources : [];
+
+  const selectedTitle = selected?.kind === 'platform' ? selected.name : 'Target identifier';
+  const selectedSubtitle = selected?.kind === 'platform'
+    ? `${selectedSources.length} research source${selectedSources.length === 1 ? '' : 's'} connected to this platform`
+    : `${sources.length} total public research sources connected to the target`;
+
   return (
-    <div className="relative h-72 rounded-2xl border border-slate-800 bg-[#050d18] overflow-hidden">
+    <div className="relative h-[360px] sm:h-[400px] rounded-2xl border border-slate-800 bg-[#050d18] overflow-hidden">
       <div className="absolute inset-0 opacity-25" style={{ backgroundImage: 'radial-gradient(#1e3a5f 1px,transparent 1px)', backgroundSize: '18px 18px' }} />
-      <svg viewBox="0 0 100 100" className="absolute inset-0 w-full h-full">
-        {nodes.map((node) => <line key={`l-${node.name}`} x1="50" y1="50" x2={node.x} y2={node.y} stroke="#22d3ee" opacity=".3" strokeWidth=".55" />)}
-        {nodes.map((node) => <g key={node.name}>
-          <circle cx={node.x} cy={node.y} r="8" fill="#091827" stroke="#38bdf8" strokeWidth=".8" />
-          <text x={node.x} y={node.y - 1} textAnchor="middle" fill="#e2e8f0" fontSize="3.2" fontWeight="700">{node.count}</text>
-          <text x={node.x} y={node.y + 12} textAnchor="middle" fill="#64748b" fontSize="3">{node.name.slice(0, 16)}</text>
-        </g>)}
-        <circle cx="50" cy="50" r="11" fill="#062536" stroke="#22d3ee" strokeWidth="1.2" />
-        <circle cx="50" cy="50" r="4" fill="#22d3ee" opacity=".85" />
-        <text x="50" y="66" textAnchor="middle" fill="#e2e8f0" fontSize="3.1">{subject.slice(0, 28)}</text>
+      <div className="absolute left-3 top-3 z-10 rounded-lg border border-cyan-500/15 bg-[#06111e]/90 px-2.5 py-1.5 text-[8px] font-bold text-cyan-300 backdrop-blur">
+        Click any node to inspect evidence
+      </div>
+
+      <svg viewBox="0 0 100 100" className="absolute inset-0 w-full h-full select-none">
+        <defs>
+          <filter id="nodeGlow" x="-80%" y="-80%" width="260%" height="260%">
+            <feGaussianBlur stdDeviation="1.5" result="blur" />
+            <feMerge><feMergeNode in="blur" /><feMergeNode in="SourceGraphic" /></feMerge>
+          </filter>
+        </defs>
+
+        {nodes.map((node, index) => (
+          <g key={`connection-${node.name}`}>
+            <line x1="50" y1="50" x2={node.x} y2={node.y} stroke="#22d3ee" opacity=".18" strokeWidth="1.7" />
+            <line x1="50" y1="50" x2={node.x} y2={node.y} stroke="#38bdf8" opacity=".75" strokeWidth=".55" strokeDasharray="2.2 2.8">
+              <animate attributeName="stroke-dashoffset" values="0;-10" dur={`${1.6 + index * 0.14}s`} repeatCount="indefinite" />
+            </line>
+            <circle r="1.05" fill="#67e8f9" filter="url(#nodeGlow)">
+              <animate attributeName="cx" values={`50;${node.x};50`} dur={`${3.2 + index * .25}s`} repeatCount="indefinite" />
+              <animate attributeName="cy" values={`50;${node.y};50`} dur={`${3.2 + index * .25}s`} repeatCount="indefinite" />
+              <animate attributeName="opacity" values="0;.95;0" dur={`${3.2 + index * .25}s`} repeatCount="indefinite" />
+            </circle>
+          </g>
+        ))}
+
+        {nodes.map((node, index) => {
+          const active = selected?.kind === 'platform' && selected.name === node.name;
+          return (
+            <g key={node.name} onClick={() => setSelected({ kind: 'platform', name: node.name })} className="cursor-pointer">
+              <circle cx={node.x} cy={node.y} r="11" fill="#0ea5e9" opacity="0.05">
+                <animate attributeName="r" values="9;12;9" dur={`${2.4 + index * .13}s`} repeatCount="indefinite" />
+                <animate attributeName="opacity" values=".03;.14;.03" dur={`${2.4 + index * .13}s`} repeatCount="indefinite" />
+              </circle>
+              <circle cx={node.x} cy={node.y} r={active ? 9 : 8} fill={active ? '#0b2940' : '#091827'} stroke={active ? '#67e8f9' : '#38bdf8'} strokeWidth={active ? 1.5 : .8} filter={active ? 'url(#nodeGlow)' : undefined}>
+                <animate attributeName="stroke-opacity" values=".55;1;.55" dur="2s" repeatCount="indefinite" />
+              </circle>
+              <circle cx={node.x} cy={node.y} r="2.2" fill="#22d3ee" opacity=".22">
+                <animate attributeName="r" values="1.6;3;1.6" dur={`${1.8 + index * .1}s`} repeatCount="indefinite" />
+                <animate attributeName="opacity" values=".15;.7;.15" dur={`${1.8 + index * .1}s`} repeatCount="indefinite" />
+              </circle>
+              <text x={node.x} y={node.y - 1} textAnchor="middle" fill="#f8fafc" fontSize="3.2" fontWeight="800" pointerEvents="none">{node.count}</text>
+              <text x={node.x} y={node.y + 12} textAnchor="middle" fill={active ? '#67e8f9' : '#64748b'} fontSize="3" fontWeight={active ? '700' : '500'} pointerEvents="none">{node.name.slice(0, 16)}</text>
+            </g>
+          );
+        })}
+
+        <g onClick={() => setSelected({ kind: 'target' })} className="cursor-pointer">
+          <circle cx="50" cy="50" r="16" fill="#22d3ee" opacity=".035">
+            <animate attributeName="r" values="12;17;12" dur="2.8s" repeatCount="indefinite" />
+            <animate attributeName="opacity" values=".03;.13;.03" dur="2.8s" repeatCount="indefinite" />
+          </circle>
+          <circle cx="50" cy="50" r="11" fill="#062536" stroke="#22d3ee" strokeWidth="1.2" filter="url(#nodeGlow)">
+            <animate attributeName="stroke-opacity" values=".65;1;.65" dur="1.8s" repeatCount="indefinite" />
+          </circle>
+          <circle cx="50" cy="50" r="4" fill="#22d3ee" opacity=".85">
+            <animate attributeName="r" values="3.4;4.8;3.4" dur="1.8s" repeatCount="indefinite" />
+          </circle>
+          <text x="50" y="66" textAnchor="middle" fill={selected?.kind === 'target' ? '#67e8f9' : '#e2e8f0'} fontSize="3.1" fontWeight="700" pointerEvents="none">{subject.slice(0, 28)}</text>
+        </g>
       </svg>
+
+      <div className={`absolute inset-3 sm:left-auto sm:w-[48%] z-20 rounded-2xl border border-cyan-500/20 bg-[#06111e]/[.97] backdrop-blur-xl shadow-2xl transition-all duration-300 ${selected ? 'translate-x-0 opacity-100 pointer-events-auto' : 'translate-x-[115%] opacity-0 pointer-events-none'}`}>
+        {selected && <div className="h-full flex flex-col">
+          <div className="p-4 border-b border-slate-800 flex items-start gap-3">
+            <div className="w-9 h-9 rounded-xl border border-cyan-500/20 bg-cyan-500/10 flex items-center justify-center shrink-0"><Network className="w-4 h-4 text-cyan-300" /></div>
+            <div className="min-w-0 flex-1">
+              <div className="text-[8px] uppercase tracking-[.18em] font-black text-cyan-400">Graph intelligence detail</div>
+              <div className="mt-1 text-sm font-black text-white">{selectedTitle}</div>
+              <div className="mt-1 text-[9px] leading-relaxed text-slate-600">{selectedSubtitle}</div>
+            </div>
+            <button onClick={() => setSelected(null)} className="w-8 h-8 rounded-lg border border-slate-800 bg-slate-950 flex items-center justify-center text-slate-600 hover:text-white shrink-0"><X className="w-3.5 h-3.5" /></button>
+          </div>
+
+          <div className="flex-1 overflow-y-auto p-3 space-y-2">
+            {selectedSources.length ? selectedSources.map((source, index) => (
+              <article key={`${source.url}-${index}`} className="rounded-xl border border-slate-800 bg-[#040a12] p-3 hover:border-cyan-500/25 transition-colors">
+                <div className="flex items-start justify-between gap-2">
+                  <div className="min-w-0 flex-1">
+                    <div className="text-[8px] uppercase tracking-[.14em] font-black text-cyan-400">{platformFromUrl(String(source.url || ''))}</div>
+                    <div className="mt-1 text-[10px] font-black text-white leading-snug">{source.title || `Source ${index + 1}`}</div>
+                    {source.content && <p className="mt-2 text-[9px] leading-relaxed text-slate-600 line-clamp-4">{source.content}</p>}
+                    <div className="mt-2 text-[8px] text-slate-700 break-all line-clamp-2">{source.url}</div>
+                  </div>
+                </div>
+                {source.url && <a href={String(source.url)} target="_blank" rel="noreferrer" className="mt-3 inline-flex items-center gap-1.5 rounded-lg border border-cyan-500/15 bg-cyan-500/[.06] px-2.5 py-1.5 text-[8px] font-black text-cyan-300">Open public source <ExternalLink className="w-3 h-3" /></a>}
+              </article>
+            )) : <div className="h-full min-h-32 flex items-center justify-center text-center p-5"><div><Globe2 className="w-7 h-7 mx-auto text-slate-700" /><div className="mt-3 text-[10px] font-black text-slate-400">No source records in this node</div><p className="mt-1 text-[9px] text-slate-700">The graph only visualizes sources returned by the current Deep Research report.</p></div></div>}
+          </div>
+
+          <div className="p-3 border-t border-slate-800 text-[8px] leading-relaxed text-slate-700">
+            Node relationships represent public-source research coverage, not proof that every linked account is owned by the target.
+          </div>
+        </div>}
+      </div>
     </div>
   );
 };
@@ -226,7 +327,7 @@ export default function DeepResearchDock() {
           </div>
 
           {activeTab === 'overview' && <div className="mt-4 grid grid-cols-1 xl:grid-cols-12 gap-4">
-            <section className="xl:col-span-7 rounded-3xl border border-slate-800 bg-[#07101c] p-5"><div className="flex items-center gap-2"><Network className="w-4 h-4 text-cyan-300" /><div><div className="text-sm font-black text-white">Public Footprint Relationship Graph</div><div className="text-[9px] text-slate-600">Source-platform relationships discovered by Deep Research</div></div></div><div className="mt-4"><NetworkGraph subject={subject} platforms={platforms} /></div></section>
+            <section className="xl:col-span-7 rounded-3xl border border-slate-800 bg-[#07101c] p-5"><div className="flex items-center gap-2"><Network className="w-4 h-4 text-cyan-300" /><div><div className="text-sm font-black text-white">Public Footprint Relationship Graph</div><div className="text-[9px] text-slate-600">Animated, clickable source-platform relationships discovered by Deep Research</div></div></div><div className="mt-4"><NetworkGraph subject={subject} platforms={platforms} sources={sources} /></div></section>
             <section className="xl:col-span-5 rounded-3xl border border-slate-800 bg-[#07101c] p-5"><div className="text-sm font-black text-white">Source Distribution</div><div className="mt-1 text-[9px] text-slate-600">Actual research sources grouped by platform</div><div className="mt-5 space-y-4">{platforms.map((item) => <div key={item.name}><div className="flex justify-between text-[10px]"><span className="text-slate-400">{item.name}</span><b className="text-white">{item.count}</b></div><div className="mt-1.5 h-2 rounded-full bg-slate-800 overflow-hidden"><div className="h-full rounded-full bg-gradient-to-r from-cyan-500 to-blue-600 transition-all duration-700" style={{ width: `${Math.max(7, (item.count / maxPlatform) * 100)}%` }} /></div></div>)}</div></section>
 
             <section className="xl:col-span-12 rounded-3xl border border-slate-800 bg-[#07101c] p-5"><div className="flex items-center gap-2"><AtSign className="w-4 h-4 text-cyan-300" /><div className="text-sm font-black text-white">Public Contact Signals</div></div><div className="mt-4 grid grid-cols-1 lg:grid-cols-2 gap-3"><div className="rounded-2xl border border-slate-800 bg-[#050d18] p-4"><div className="text-[9px] uppercase tracking-widest text-slate-600">Emails observed in research</div><div className="mt-3 flex flex-wrap gap-2">{contacts.emails.length ? contacts.emails.map((email) => <span key={email} className="px-2.5 py-1.5 rounded-lg border border-cyan-500/15 bg-cyan-500/[.06] text-[10px] text-cyan-300">{email}</span>) : <span className="text-[10px] text-slate-700">None surfaced.</span>}</div></div><div className="rounded-2xl border border-slate-800 bg-[#050d18] p-4"><div className="text-[9px] uppercase tracking-widest text-slate-600">Phone numbers observed in research</div><div className="mt-3 flex flex-wrap gap-2">{contacts.phones.length ? contacts.phones.map((phone) => <span key={phone} className="px-2.5 py-1.5 rounded-lg border border-emerald-500/15 bg-emerald-500/[.06] text-[10px] text-emerald-300">{phone}</span>) : <span className="text-[10px] text-slate-700">None surfaced.</span>}</div></div></div></section>
