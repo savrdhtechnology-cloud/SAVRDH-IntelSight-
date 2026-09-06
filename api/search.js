@@ -25,18 +25,35 @@ const SOCIAL_HOSTS = {
   'www.tiktok.com': 'TikTok',
   'youtube.com': 'YouTube',
   'www.youtube.com': 'YouTube',
+  'youtu.be': 'YouTube',
   'threads.net': 'Threads',
   'www.threads.net': 'Threads',
   'pinterest.com': 'Pinterest',
   'www.pinterest.com': 'Pinterest',
+  'quora.com': 'Quora',
+  'www.quora.com': 'Quora',
   'medium.com': 'Medium',
   'dev.to': 'DEV Community',
+  't.me': 'Telegram Public',
+  'telegram.me': 'Telegram Public',
 };
 
 const SOCIAL_DOMAINS = [
   'linkedin.com', 'facebook.com', 'instagram.com', 'x.com', 'twitter.com',
   'github.com', 'reddit.com', 'tiktok.com', 'youtube.com', 'threads.net',
-  'pinterest.com', 'medium.com', 'dev.to',
+  'pinterest.com', 'quora.com', 'medium.com', 'dev.to', 't.me', 'telegram.me',
+];
+
+// Deep exact scan groups keep each search narrow enough that a public post/profile/page
+// containing the identifier is not drowned out by unrelated web results.
+const SOCIAL_SCAN_GROUPS = [
+  ['facebook.com', 'instagram.com', 'threads.net'],
+  ['linkedin.com'],
+  ['x.com', 'twitter.com', 'reddit.com'],
+  ['github.com', 'medium.com', 'dev.to'],
+  ['tiktok.com', 'youtube.com'],
+  ['pinterest.com', 'quora.com'],
+  ['t.me', 'telegram.me'],
 ];
 
 const sendJson = (res, status, payload) => {
@@ -105,9 +122,10 @@ function dedupeEvidence(items) {
 function buildResult(query, type, evidence, connectorStatus, identityHint) {
   const strict = STRICT_TYPES.has(type);
   const accepted = strict ? evidence.filter((item) => item.matchType === 'exact') : evidence;
-  const unique = dedupeEvidence(accepted).slice(0, 40);
+  const unique = dedupeEvidence(accepted).slice(0, 60);
   const exactSignals = unique.filter((item) => item.matchType === 'exact').length;
   const socialSignals = unique.filter((item) => item.category === 'profile').length;
+  const platformCount = new Set(unique.map((item) => item.source).filter(Boolean)).size;
   const averageConfidence = unique.length
     ? Math.round(unique.reduce((sum, item) => sum + Number(item.confidence || 0), 0) / unique.length)
     : 0;
@@ -118,9 +136,9 @@ function buildResult(query, type, evidence, connectorStatus, identityHint) {
   const webConfigured = connectorStatus.tavily === 'connected' || connectorStatus.brave === 'connected_fallback';
   const summary = strict
     ? unique.length
-      ? `Strict Exact Match Mode: found ${unique.length} public-source footprint${unique.length === 1 ? '' : 's'} where the exact ${type === 'email' ? 'email address' : 'mobile number'} was observed in returned public evidence. Similar names, derived usernames and semantic-only matches were excluded.`
+      ? `Deep Strict Exact Match Mode: found ${unique.length} public-source footprint${unique.length === 1 ? '' : 's'} across ${platformCount} source${platformCount === 1 ? '' : 's'} where the exact ${type === 'email' ? 'email address' : 'mobile number'} was observed in returned public evidence or indexed page content. Similar names, derived usernames and semantic-only matches were excluded.`
       : webConfigured
-        ? `Strict Exact Match Mode: no public result containing the exact ${type === 'email' ? 'email address' : 'mobile number'} was confirmed by the configured connectors. Similar or inferred matches were intentionally excluded.`
+        ? `Deep Strict Exact Match Mode: no public result containing the exact ${type === 'email' ? 'email address' : 'mobile number'} was confirmed by the configured connectors. Similar or inferred matches were intentionally excluded.`
         : 'Strict Exact Match Mode is active, but broad public-web search is not configured.'
     : unique.length
       ? `Found ${unique.length} public-source signal${unique.length === 1 ? '' : 's'}. Non-exact correlations remain analyst-review leads.`
@@ -138,8 +156,10 @@ function buildResult(query, type, evidence, connectorStatus, identityHint) {
         : 'Public identity signals discovered — analyst review required'
       : 'No verified public identity established'),
     summary,
-    matchPolicy: strict ? 'strict_exact' : 'confidence_scored',
+    matchPolicy: strict ? 'strict_exact_deep_scan' : 'confidence_scored',
     exactMatchCount: exactSignals,
+    socialFootprintCount: socialSignals,
+    platformCount,
     evidence: unique.map(({ matchType, identityHint: _identityHint, ...item }) => item),
     timeline: unique
       .map((item) => ({
@@ -159,11 +179,12 @@ function buildResult(query, type, evidence, connectorStatus, identityHint) {
 
 function resultToEvidence(item, identifier, type, prefix = 'tavily') {
   const title = safeText(item?.title, 220) || 'Public web result';
-  const content = safeText(item?.content || item?.snippet || '', 600);
+  const content = safeText(item?.content || item?.snippet || '', 900);
+  const rawContent = safeText(item?.raw_content || '', 6000);
   const url = String(item?.url || '').trim();
   if (!url) return null;
 
-  const combined = `${title} ${content}`;
+  const combined = `${title} ${content} ${rawContent}`;
   const exact = exactIdentifierObserved(combined, identifier, type);
   const strict = STRICT_TYPES.has(type);
   if (strict && !exact) return null;
@@ -176,15 +197,18 @@ function resultToEvidence(item, identifier, type, prefix = 'tavily') {
       ? Math.max(52, Math.min(76, Math.round(relevance * 100)))
       : Math.max(48, Math.min(72, Math.round(relevance * 100)));
 
+  const source = platform || 'Indexed Public Web';
+  const footprintType = platform ? 'public social profile/post/page mention' : 'public web/document mention';
+
   return {
     id: sourceId(prefix, url),
-    source: platform || 'Indexed Public Web',
+    source,
     title,
     url,
     category: platform ? 'profile' : 'web',
     confidence,
     observedAt: isoNow(),
-    summary: `${content || `Public indexed result returned for ${identifier}.`}${exact ? ` • Exact ${type === 'mobile' ? 'mobile digits' : 'identifier text'} observed in returned public evidence.` : ' • Possible correlation only; analyst verification required.'}`,
+    summary: `${content || `Public indexed result returned for ${identifier}.`}${exact ? ` • Exact ${type === 'mobile' ? 'mobile digits' : 'identifier text'} observed in ${footprintType}.` : ' • Possible correlation only; analyst verification required.'}`,
     matchType: exact ? 'exact' : 'possible',
   };
 }
@@ -193,13 +217,15 @@ async function tavilySearch(searchQuery, identifier, type, includeDomains) {
   const apiKey = process.env.TAVILY_API_KEY;
   if (!apiKey) return [];
 
+  const strict = STRICT_TYPES.has(type);
   const body = {
     query: searchQuery,
-    search_depth: 'basic',
+    search_depth: strict ? 'advanced' : 'basic',
     topic: 'general',
-    max_results: 20,
+    max_results: strict ? 12 : 20,
     include_answer: false,
-    include_raw_content: false,
+    // In strict mode raw public page text gives us a stronger exact-match check than snippet-only results.
+    include_raw_content: strict,
   };
   if (Array.isArray(includeDomains) && includeDomains.length) body.include_domains = includeDomains;
 
@@ -210,7 +236,7 @@ async function tavilySearch(searchQuery, identifier, type, includeDomains) {
       Authorization: `Bearer ${apiKey}`,
     },
     body: JSON.stringify(body),
-    signal: AbortSignal.timeout(12000),
+    signal: AbortSignal.timeout(18000),
   });
 
   if (!response.ok) throw new Error(`Tavily Search returned ${response.status}`);
@@ -223,9 +249,15 @@ async function tavilyIdentifierSearch(identifier, type) {
   if (!process.env.TAVILY_API_KEY) return [];
   const clean = identifier.replace(/"/g, '');
   const exactQuery = `"${clean}"`;
+
+  // One global exact scan + narrow platform groups. Keeping these in parallel avoids multiplying latency.
   const searches = [tavilySearch(exactQuery, identifier, type)];
 
-  if (type === 'email' || type === 'mobile' || type === 'username') {
+  if (type === 'email' || type === 'mobile') {
+    for (const domains of SOCIAL_SCAN_GROUPS) {
+      searches.push(tavilySearch(exactQuery, identifier, type, domains));
+    }
+  } else if (type === 'username') {
     searches.push(tavilySearch(exactQuery, identifier, type, SOCIAL_DOMAINS));
   }
 
@@ -267,7 +299,7 @@ async function githubEmailCommits(email) {
   const response = await fetch(apiUrl, {
     headers: {
       Accept: 'application/vnd.github+json',
-      'User-Agent': 'SAVRDH-IntelSight/0.5',
+      'User-Agent': 'SAVRDH-IntelSight/0.6',
       'X-GitHub-Api-Version': '2022-11-28',
     },
     signal: AbortSignal.timeout(8000),
@@ -299,7 +331,7 @@ async function githubProfile(username, confidence = 98, matchType = 'exact') {
   const response = await fetch(apiUrl, {
     headers: {
       Accept: 'application/vnd.github+json',
-      'User-Agent': 'SAVRDH-IntelSight/0.5',
+      'User-Agent': 'SAVRDH-IntelSight/0.6',
       'X-GitHub-Api-Version': '2022-11-28',
     },
     signal: AbortSignal.timeout(8000),
@@ -324,7 +356,7 @@ async function redditProfile(username, confidence = 48, matchType = 'possible') 
   if (!/^[A-Za-z0-9_-]{3,20}$/.test(username)) return null;
   const url = `https://www.reddit.com/user/${encodeURIComponent(username)}/about.json`;
   const response = await fetch(url, {
-    headers: { 'User-Agent': 'SAVRDH-IntelSight/0.5 public-osint' },
+    headers: { 'User-Agent': 'SAVRDH-IntelSight/0.6 public-osint' },
     signal: AbortSignal.timeout(7000),
   });
   if (!response.ok) return null;
@@ -358,7 +390,7 @@ async function domainEvidence(domain) {
   if (!/^[a-z0-9.-]+\.[a-z]{2,}$/i.test(domain)) return [];
   const url = `https://rdap.org/domain/${encodeURIComponent(domain)}`;
   const response = await fetch(url, {
-    headers: { 'User-Agent': 'SAVRDH-IntelSight/0.5' },
+    headers: { 'User-Agent': 'SAVRDH-IntelSight/0.6' },
     signal: AbortSignal.timeout(8000),
   });
   if (!response.ok) return [];
@@ -414,6 +446,7 @@ async function searchPublicSources(query, type) {
 
   const connectorStatus = {
     tavily: process.env.TAVILY_API_KEY ? 'connected' : 'not_configured',
+    socialExactScan: process.env.TAVILY_API_KEY && STRICT_TYPES.has(type) ? 'connected_deep_scan' : 'not_applicable',
     brave: process.env.BRAVE_SEARCH_API_KEY ? 'connected_fallback' : 'not_configured',
     github: 'connected',
     reddit: 'best_effort_public',
@@ -448,7 +481,7 @@ export default async function handler(req, res) {
       connectorStatus: result.connectorStatus,
       message: STRICT_TYPES.has(requestedType)
         ? webConnected
-          ? 'Strict exact public identifier search completed. Non-exact and inferred matches were excluded.'
+          ? 'Deep strict exact public identifier scan completed across general web and public social platforms. Non-exact and inferred matches were excluded.'
           : 'Strict exact direct-connector search completed. Broad public web search is not configured.'
         : webConnected
           ? 'Live public web and public social-index search completed.'
