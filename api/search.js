@@ -25,6 +25,11 @@ const SOCIAL_HOSTS = {
   'dev.to': 'DEV Community',
 };
 
+const SOCIAL_DOMAINS = [
+  'linkedin.com', 'facebook.com', 'instagram.com', 'x.com', 'twitter.com',
+  'github.com', 'reddit.com', 'tiktok.com', 'medium.com', 'dev.to',
+];
+
 const sendJson = (res, status, payload) => {
   Object.entries(headers).forEach(([key, value]) => res.setHeader(key, value));
   return res.status(status).json(payload);
@@ -47,7 +52,7 @@ const normalize = (value, type) => {
 };
 
 const isoNow = () => new Date().toISOString();
-const safeText = (value, max = 360) => String(value || '').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, max);
+const safeText = (value, max = 420) => String(value || '').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, max);
 const sourceId = (prefix, value) => `${prefix}-${String(value).replace(/[^a-z0-9]+/gi, '-').replace(/^-|-$/g, '').slice(0, 64)}`;
 
 function getPlatform(url) {
@@ -77,15 +82,15 @@ function buildResult(query, type, evidence, connectorStatus, identityHint) {
     ? Math.round(unique.reduce((sum, item) => sum + Number(item.confidence || 0), 0) / unique.length)
     : 0;
   const visibilityScore = unique.length
-    ? Math.min(95, 24 + exactSignals * 14 + socialSignals * 8 + Math.min(unique.length, 10) * 3)
+    ? Math.min(95, 20 + exactSignals * 15 + socialSignals * 7 + Math.min(unique.length, 10) * 3)
     : 0;
 
-  const webConfigured = connectorStatus.brave === 'connected';
+  const webConfigured = connectorStatus.tavily === 'connected' || connectorStatus.brave === 'connected';
   const summary = unique.length
-    ? `Found ${unique.length} public-source signal${unique.length === 1 ? '' : 's'}. Exact identifier mentions are stronger evidence; username-only profile matches are marked as possible matches and require analyst verification.`
+    ? `Found ${unique.length} public-source signal${unique.length === 1 ? '' : 's'}. Exact identifier mentions are stronger evidence; username-only or semantically related profile results are marked as possible matches and require analyst verification.`
     : webConfigured
       ? 'No public evidence was returned by the configured public-source connectors for this identifier. This does not prove that no public presence exists.'
-      : 'No exact public evidence was found from the currently available direct connectors. Broad indexed web and social discovery requires the Brave Search connector to be enabled in Vercel.';
+      : 'No exact public evidence was found from the currently available direct connectors. Add TAVILY_API_KEY in Vercel to enable broad indexed web and public social discovery.';
 
   return {
     query,
@@ -95,7 +100,7 @@ function buildResult(query, type, evidence, connectorStatus, identityHint) {
     sourceCount: unique.length,
     possibleIdentity: identityHint || (unique.length ? 'Public identity signals discovered — analyst review required' : 'No verified public identity established'),
     summary,
-    evidence: unique.map(({ matchType, ...item }) => item),
+    evidence: unique.map(({ matchType, identityHint: _identityHint, ...item }) => item),
     timeline: unique
       .map((item) => ({
         date: item.observedAt || isoNow(),
@@ -105,66 +110,104 @@ function buildResult(query, type, evidence, connectorStatus, identityHint) {
       .sort((a, b) => new Date(b.date) - new Date(a.date)),
     exposure: {
       status: 'none',
-      summary: 'This search uses public/authorized sources only and does not query passwords, OTPs, session tokens, private chats, or private location data.',
+      summary: 'This search uses public/authorized sources only and does not query passwords, OTPs, session tokens, private chats, private accounts, or private location data.',
     },
     mode: 'live',
     connectorStatus,
   };
 }
 
+function resultToEvidence(item, identifier, prefix = 'tavily') {
+  const title = safeText(item?.title, 180) || 'Public web result';
+  const content = safeText(item?.content || item?.snippet || '', 420);
+  const url = String(item?.url || '').trim();
+  if (!url) return null;
+  const combined = `${title} ${content}`.toLowerCase();
+  const exact = combined.includes(identifier.toLowerCase());
+  const platform = getPlatform(url);
+  const relevance = Number(item?.score || 0);
+
+  return {
+    id: sourceId(prefix, url),
+    source: platform || 'Indexed Public Web',
+    title,
+    url,
+    category: platform ? 'profile' : 'web',
+    confidence: exact ? 92 : platform ? Math.max(52, Math.min(76, Math.round(relevance * 100))) : Math.max(48, Math.min(72, Math.round(relevance * 100))),
+    observedAt: isoNow(),
+    summary: `${content || `Public indexed result returned for ${identifier}.`}${exact ? ' • Exact identifier text observed in indexed content.' : ' • Possible match; exact identifier text was not confirmed in the returned snippet.'}`,
+    matchType: exact ? 'exact' : 'possible',
+  };
+}
+
+async function tavilySearch(searchQuery, identifier, includeDomains) {
+  const apiKey = process.env.TAVILY_API_KEY;
+  if (!apiKey) return [];
+
+  const body = {
+    query: searchQuery,
+    search_depth: 'basic',
+    topic: 'general',
+    max_results: 20,
+    include_answer: false,
+    include_raw_content: false,
+  };
+  if (Array.isArray(includeDomains) && includeDomains.length) body.include_domains = includeDomains;
+
+  const response = await fetch('https://api.tavily.com/search', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${apiKey}`,
+    },
+    body: JSON.stringify(body),
+    signal: AbortSignal.timeout(12000),
+  });
+
+  if (!response.ok) throw new Error(`Tavily Search returned ${response.status}`);
+  const payload = await response.json();
+  const results = Array.isArray(payload?.results) ? payload.results : [];
+  return results.map((item) => resultToEvidence(item, identifier, 'tavily')).filter(Boolean);
+}
+
+async function tavilyIdentifierSearch(identifier, type) {
+  if (!process.env.TAVILY_API_KEY) return [];
+  const clean = identifier.replace(/"/g, '');
+  const exactQuery = `"${clean}"`;
+  const searches = [tavilySearch(exactQuery, identifier)];
+
+  if (type === 'email' || type === 'mobile' || type === 'username') {
+    searches.push(tavilySearch(exactQuery, identifier, SOCIAL_DOMAINS));
+  }
+
+  const settled = await Promise.allSettled(searches);
+  return settled.flatMap((item) => item.status === 'fulfilled' ? item.value : []);
+}
+
 async function braveSearch(searchQuery, identifier) {
   const apiKey = process.env.BRAVE_SEARCH_API_KEY;
   if (!apiKey) return [];
-
   const url = new URL('https://api.search.brave.com/res/v1/web/search');
   url.searchParams.set('q', searchQuery);
   url.searchParams.set('count', '20');
   url.searchParams.set('result_filter', 'web');
-  url.searchParams.set('extra_snippets', 'true');
   url.searchParams.set('text_decorations', 'false');
   url.searchParams.set('safesearch', 'moderate');
 
   const response = await fetch(url, {
-    headers: {
-      Accept: 'application/json',
-      'X-Subscription-Token': apiKey,
-    },
+    headers: { Accept: 'application/json', 'X-Subscription-Token': apiKey },
     signal: AbortSignal.timeout(9000),
   });
   if (!response.ok) throw new Error(`Brave Search returned ${response.status}`);
   const payload = await response.json();
   const results = Array.isArray(payload?.web?.results) ? payload.web.results : [];
-  const loweredIdentifier = identifier.toLowerCase();
-
-  return results.map((item, index) => {
-    const title = safeText(item.title, 180) || 'Public web result';
-    const description = safeText([item.description, ...(Array.isArray(item.extra_snippets) ? item.extra_snippets : [])].filter(Boolean).join(' '), 420);
-    const combined = `${title} ${description}`.toLowerCase();
-    const exact = combined.includes(loweredIdentifier);
-    const platform = getPlatform(item.url);
-    return {
-      id: sourceId('web', `${index}-${item.url}`),
-      source: platform || 'Indexed Public Web',
-      title,
-      url: item.url,
-      category: platform ? 'profile' : 'web',
-      confidence: exact ? 90 : platform ? 68 : 62,
-      observedAt: isoNow(),
-      summary: description || `Public indexed result returned for ${identifier}.`,
-      matchType: exact ? 'exact' : 'possible',
-    };
-  });
+  return results.map((item) => resultToEvidence({ title: item.title, content: item.description, url: item.url, score: 0.65 }, identifier, 'brave')).filter(Boolean);
 }
 
-async function braveIdentifierSearch(identifier, type) {
-  if (!process.env.BRAVE_SEARCH_API_KEY) return [];
-  const exactQuery = `"${identifier.replace(/"/g, '')}"`;
-  const searches = [braveSearch(exactQuery, identifier)];
-  if (type === 'email' || type === 'mobile') {
-    searches.push(braveSearch(`${exactQuery} (site:linkedin.com OR site:facebook.com OR site:instagram.com OR site:x.com OR site:twitter.com OR site:github.com OR site:reddit.com OR site:tiktok.com)`, identifier));
-  }
-  const settled = await Promise.allSettled(searches);
-  return settled.flatMap((item) => item.status === 'fulfilled' ? item.value : []);
+async function broadIndexedSearch(identifier, type) {
+  if (process.env.TAVILY_API_KEY) return tavilyIdentifierSearch(identifier, type);
+  if (process.env.BRAVE_SEARCH_API_KEY) return braveSearch(`"${identifier.replace(/"/g, '')}"`, identifier);
+  return [];
 }
 
 async function githubEmailCommits(email) {
@@ -175,7 +218,7 @@ async function githubEmailCommits(email) {
   const response = await fetch(apiUrl, {
     headers: {
       Accept: 'application/vnd.github+json',
-      'User-Agent': 'SAVRDH-IntelSight/0.3',
+      'User-Agent': 'SAVRDH-IntelSight/0.4',
       'X-GitHub-Api-Version': '2022-11-28',
     },
     signal: AbortSignal.timeout(8000),
@@ -189,7 +232,7 @@ async function githubEmailCommits(email) {
     return {
       id: sourceId('github-email', `${index}-${item.html_url}`),
       source: 'GitHub Public Commits',
-      title: `Exact email observed in public Git commit metadata`,
+      title: 'Exact email observed in public Git commit metadata',
       url: item.html_url,
       category: 'profile',
       confidence: 96,
@@ -207,7 +250,7 @@ async function githubProfile(username, confidence = 98, matchType = 'exact') {
   const response = await fetch(apiUrl, {
     headers: {
       Accept: 'application/vnd.github+json',
-      'User-Agent': 'SAVRDH-IntelSight/0.3',
+      'User-Agent': 'SAVRDH-IntelSight/0.4',
       'X-GitHub-Api-Version': '2022-11-28',
     },
     signal: AbortSignal.timeout(8000),
@@ -232,7 +275,7 @@ async function redditProfile(username, confidence = 48, matchType = 'possible') 
   if (!/^[A-Za-z0-9_-]{3,20}$/.test(username)) return null;
   const url = `https://www.reddit.com/user/${encodeURIComponent(username)}/about.json`;
   const response = await fetch(url, {
-    headers: { 'User-Agent': 'SAVRDH-IntelSight/0.3 public-osint' },
+    headers: { 'User-Agent': 'SAVRDH-IntelSight/0.4 public-osint' },
     signal: AbortSignal.timeout(7000),
   });
   if (!response.ok) return null;
@@ -266,7 +309,7 @@ async function domainEvidence(domain) {
   if (!/^[a-z0-9.-]+\.[a-z]{2,}$/i.test(domain)) return [];
   const url = `https://rdap.org/domain/${encodeURIComponent(domain)}`;
   const response = await fetch(url, {
-    headers: { 'User-Agent': 'SAVRDH-IntelSight/0.3' },
+    headers: { 'User-Agent': 'SAVRDH-IntelSight/0.4' },
     signal: AbortSignal.timeout(8000),
   });
   if (!response.ok) return [];
@@ -296,36 +339,36 @@ async function searchPublicSources(query, type) {
   if (type === 'email') {
     const [commitEvidence, indexedEvidence] = await Promise.all([
       githubEmailCommits(query).catch(() => []),
-      braveIdentifierSearch(query, type).catch(() => []),
+      broadIndexedSearch(query, type).catch(() => []),
     ]);
     evidence.push(...commitEvidence, ...indexedEvidence);
     identityHint = commitEvidence.find((item) => item.identityHint)?.identityHint || null;
 
     const localPart = query.split('@')[0];
     if (/^[A-Za-z0-9_-]{3,38}$/.test(localPart)) {
-      const possibleProfiles = await usernamePresence(localPart, false).catch(() => []);
-      evidence.push(...possibleProfiles);
+      evidence.push(...await usernamePresence(localPart, false).catch(() => []));
     }
   } else if (type === 'mobile') {
-    evidence.push(...await braveIdentifierSearch(query, type).catch(() => []));
+    evidence.push(...await broadIndexedSearch(query, type).catch(() => []));
   } else if (type === 'username') {
     const [profiles, indexedEvidence] = await Promise.all([
       usernamePresence(query, true).catch(() => []),
-      braveIdentifierSearch(query, type).catch(() => []),
+      broadIndexedSearch(query, type).catch(() => []),
     ]);
     evidence.push(...profiles, ...indexedEvidence);
     identityHint = profiles.find((item) => item.identityHint)?.identityHint || null;
   } else if (type === 'domain') {
     const [registry, indexedEvidence] = await Promise.all([
       domainEvidence(query).catch(() => []),
-      braveIdentifierSearch(query, type).catch(() => []),
+      broadIndexedSearch(query, type).catch(() => []),
     ]);
     evidence.push(...registry, ...indexedEvidence);
     identityHint = registry.find((item) => item.identityHint)?.identityHint || query;
   }
 
   const connectorStatus = {
-    brave: process.env.BRAVE_SEARCH_API_KEY ? 'connected' : 'not_configured',
+    tavily: process.env.TAVILY_API_KEY ? 'connected' : 'not_configured',
+    brave: process.env.BRAVE_SEARCH_API_KEY ? 'connected_fallback' : 'not_configured',
     github: 'connected',
     reddit: 'best_effort_public',
     rdap: 'connected',
@@ -349,12 +392,13 @@ export default async function handler(req, res) {
 
   try {
     const result = await searchPublicSources(normalized, requestedType);
+    const webConnected = result.connectorStatus.tavily === 'connected' || result.connectorStatus.brave === 'connected_fallback';
     return sendJson(res, 200, {
       result,
       connectorStatus: result.connectorStatus,
-      message: result.connectorStatus.brave === 'connected'
-        ? 'Live public web and social-index search completed.'
-        : 'Direct public connectors completed. Add BRAVE_SEARCH_API_KEY in Vercel to enable broad indexed web/social discovery.',
+      message: webConnected
+        ? 'Live public web and public social-index search completed.'
+        : 'Direct public connectors completed. Add TAVILY_API_KEY in Vercel to enable broad indexed web/social discovery.',
     });
   } catch (error) {
     console.error('IntelSight search connector error', error);
