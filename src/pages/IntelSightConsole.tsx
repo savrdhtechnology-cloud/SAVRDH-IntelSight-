@@ -25,7 +25,7 @@ const nav: Array<[View, Icon, string]> = [
 ];
 
 const typeLabels: Array<[SearchType, string]> = [
-  ['email', 'Email'], ['mobile', 'Mobile'], ['username', 'Username'], ['domain', 'Domain'],
+  ['email', 'Email'], ['mobile', 'Mobile'], ['username', 'Username'], ['domain', 'Domain'], ['company', 'Company'],
 ];
 
 const formatDate = (value: string) => new Intl.DateTimeFormat('en-IN', {
@@ -66,26 +66,33 @@ export const IntelSightConsole: React.FC = () => {
   const [mobileNav, setMobileNav] = useState(false);
 
   const placeholder = useMemo(() => ({
-    email: 'name@example.com', mobile: '+91 98765 43210', username: 'public_username', domain: 'example.com'
+    email: 'name@example.com',
+    mobile: '+91 98765 43210',
+    username: 'public_username',
+    domain: 'example.com',
+    company: 'SAVRDH Capital Private Limited',
   }[searchType]), [searchType]);
 
   const runSearch = async () => {
     const value = query.trim();
     if (!value) return;
+    const inferred = inferSearchType(value);
+    const effectiveType: SearchType = inferred === 'company' ? 'company' : searchType;
+    if (effectiveType !== searchType) setSearchType(effectiveType);
     setRunning(true);
     try {
       const response = await fetch('/api/search', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ query: value, type: searchType })
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ query: value, type: effectiveType })
       });
       if (response.ok) {
         const payload = await response.json();
         if (payload?.result) setResult(payload.result as SearchResult);
-        else setResult(createDemoResult(value, searchType));
+        else setResult(createDemoResult(value, effectiveType));
       } else {
-        setResult(createDemoResult(value, searchType));
+        setResult(createDemoResult(value, effectiveType));
       }
     } catch {
-      setResult(createDemoResult(value, searchType));
+      setResult(createDemoResult(value, effectiveType));
     } finally {
       setRunning(false);
       setView('search');
@@ -176,15 +183,15 @@ type SearchWorkspaceProps = {
 
 const SearchWorkspace = ({ result, query, setQuery, searchType, setSearchType, runSearch, running, placeholder, useDetectedType }: SearchWorkspaceProps) => (
   <div>
-    <div><div className="text-[10px] uppercase tracking-[0.2em] font-black text-cyan-400">Universal Search</div><h1 className="mt-2 text-3xl font-black text-white">Public intelligence search</h1><p className="mt-2 text-sm text-slate-500">Search one permitted public identifier and review evidence-linked signals. Results must be treated as investigative leads until verified.</p></div>
+    <div><div className="text-[10px] uppercase tracking-[0.2em] font-black text-cyan-400">Universal Search</div><h1 className="mt-2 text-3xl font-black text-white">Public intelligence search</h1><p className="mt-2 text-sm text-slate-500">Search a permitted public identifier, domain or company and review evidence-linked signals. Results must be treated as investigative leads until verified.</p></div>
 
     <div className="mt-6 rounded-3xl border border-slate-800 bg-[#09111e] p-5 sm:p-6">
       <div className="flex flex-wrap gap-2">{typeLabels.map(([type,label]) => <button key={type} onClick={() => setSearchType(type)} className={`px-4 py-2.5 rounded-xl text-xs font-black border ${searchType === type ? 'border-cyan-500/30 bg-cyan-500/10 text-cyan-300' : 'border-slate-800 bg-slate-950 text-slate-500'}`}>{label}</button>)}</div>
       <div className="mt-4 flex flex-col sm:flex-row gap-3"><div className="flex-1 h-14 rounded-2xl border border-slate-700 bg-slate-950 flex items-center px-4 gap-3"><Search className="w-5 h-5 text-slate-600" /><input value={query} onChange={e => setQuery(e.target.value)} onBlur={useDetectedType} onKeyDown={e => e.key === 'Enter' && runSearch()} placeholder={placeholder} className="flex-1 min-w-0 bg-transparent outline-none text-sm text-white font-mono" /></div><button onClick={runSearch} disabled={running || !query.trim()} className="h-14 px-6 rounded-2xl bg-gradient-to-r from-cyan-500 to-blue-600 disabled:opacity-40 text-sm font-black text-white inline-flex items-center justify-center gap-2">{running ? <Activity className="w-4 h-4 animate-spin" /> : <Radar className="w-4 h-4" />}{running ? 'Scanning public sources…' : 'Run Search'}</button></div>
-      <div className="mt-3 flex items-center gap-2 text-[10px] text-slate-600"><LockKeyhole className="w-3.5 h-3.5" /> Only use identifiers you are legally permitted to investigate. Private credentials and private communications are outside product scope.</div>
+      <div className="mt-3 flex items-center gap-2 text-[10px] text-slate-600"><LockKeyhole className="w-3.5 h-3.5" /> Only use identifiers or organizations you are legally permitted to investigate. Private credentials and private communications are outside product scope.</div>
     </div>
 
-    {!result ? <div className="mt-6 rounded-3xl border border-dashed border-slate-800 min-h-[360px] flex items-center justify-center text-center p-8"><div><div className="mx-auto w-16 h-16 rounded-2xl bg-cyan-500/10 border border-cyan-500/20 flex items-center justify-center"><Eye className="w-7 h-7 text-cyan-300" /></div><h3 className="mt-5 text-lg font-black text-white">No search executed yet</h3><p className="mt-2 text-sm text-slate-600">Enter an email, mobile number, username or domain to begin.</p></div></div> : <ResultView result={result} />}
+    {!result ? <div className="mt-6 rounded-3xl border border-dashed border-slate-800 min-h-[360px] flex items-center justify-center text-center p-8"><div><div className="mx-auto w-16 h-16 rounded-2xl bg-cyan-500/10 border border-cyan-500/20 flex items-center justify-center"><Eye className="w-7 h-7 text-cyan-300" /></div><h3 className="mt-5 text-lg font-black text-white">No search executed yet</h3><p className="mt-2 text-sm text-slate-600">Enter an email, mobile number, username, domain or company name to begin.</p></div></div> : <ResultView result={result} />}
   </div>
 );
 
@@ -217,6 +224,7 @@ const SourcesPanel = () => (
       ['RDAP Domain Intelligence', Globe2, 'Public', 'Ready skeleton', 'Domain registration and registry metadata.'],
       ['GitHub Public Profiles', Users, 'Public', 'Ready skeleton', 'Public username profile and repository signals.'],
       ['Web Search Provider', Search, 'Licensed API', 'API key required', 'Indexed public web occurrences for permitted identifiers.'],
+      ['Company Intelligence', BriefcaseBusiness, 'Public/Licensed web', 'Connected', 'Corporate references, public company pages, professional profiles and domain signals.'],
       ['Defensive Exposure Provider', ShieldCheck, 'Licensed API', 'API key required', 'Breach/exposure summary without stolen secrets.'],
       ['Supabase', Database, 'Internal', isSupabaseConfigured ? 'Configured' : 'Keys required', 'Authentication, cases, evidence, reports and audit logs.'],
       ['CRM Integration', BarChart3, 'Internal', 'Phase 2', 'Optional SAVRDH CRM lead/case handoff.'],
