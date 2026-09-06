@@ -5,6 +5,7 @@ import { IntelSightPage } from './pages/IntelSightPage';
 import { IntelSightConsole } from './pages/IntelSightConsole';
 import { LeadIntelligenceDashboard } from './pages/LeadIntelligenceDashboard';
 import { AnalyticsDashboard } from './pages/AnalyticsDashboard';
+import { TavilyLab } from './pages/TavilyLab';
 import { LoginPage } from './pages/LoginPage';
 import GraphDetailEnhancer from './components/GraphDetailEnhancer';
 import { NavigationProvider, useNavigation } from './context/NavigationContext';
@@ -80,6 +81,7 @@ export default function App() {
             <Route path="/app" element={<Protected><AnalyticsDashboard /></Protected>} />
             <Route path="/app/profile" element={<Protected><><LeadIntelligenceDashboard /><GraphDetailEnhancer /></></Protected>} />
             <Route path="/app/workspace" element={<Protected><IntelSightConsole /></Protected>} />
+            <Route path="/app/lab" element={<Protected><TavilyLab /></Protected>} />
             <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>
         </NavigationProvider>
