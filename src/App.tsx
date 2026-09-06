@@ -5,6 +5,7 @@ import { IntelSightPage } from './pages/IntelSightPage';
 import { IntelSightConsole } from './pages/IntelSightConsole';
 import { LeadIntelligenceDashboard } from './pages/LeadIntelligenceDashboard';
 import { IntegratedIntelDashboard } from './pages/IntegratedIntelDashboard';
+import { ApplicationHome } from './pages/ApplicationHome';
 import { TavilyLab } from './pages/TavilyLab';
 import { LoginPage } from './pages/LoginPage';
 import GraphDetailEnhancer from './components/GraphDetailEnhancer';
@@ -78,7 +79,8 @@ export default function App() {
           <Routes>
             <Route path="/" element={<Landing />} />
             <Route path="/login" element={<LoginPage />} />
-            <Route path="/app" element={<Protected><IntegratedIntelDashboard /></Protected>} />
+            <Route path="/app" element={<Protected><ApplicationHome /></Protected>} />
+            <Route path="/app/search" element={<Protected><IntegratedIntelDashboard /></Protected>} />
             <Route path="/app/profile" element={<Protected><><LeadIntelligenceDashboard /><GraphDetailEnhancer /></></Protected>} />
             <Route path="/app/workspace" element={<Protected><IntelSightConsole /></Protected>} />
             <Route path="/app/lab" element={<Protected><TavilyLab /></Protected>} />
